@@ -1,10 +1,15 @@
 package terraform
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
+	"regexp"
 	"strings"
 
+	"github.com/hashicorp/hcl"
+	"github.com/hashicorp/hcl/hcl/printer"
 	"github.com/sirupsen/logrus"
 )
 
@@ -12,7 +17,7 @@ type PlanConfig struct {
 	ChDir   string
 	Destroy bool
 	Targets []string
-	Vars    map[string]string
+	Vars    map[string]any
 }
 
 type PlanResult struct {
@@ -31,7 +36,7 @@ func (c *PlanConfig) getArgs() ([]string, error) {
 		if err := createVarFile(c.Vars, tempDir); err != nil {
 			return nil, err
 		}
-		args = append(args, "-var-file="+tempDir+"/vars.tfvar")
+		args = append(args, "-var-file="+tempDir+"/vars.tfvars")
 	}
 
 	if c.ChDir != "" {
@@ -46,7 +51,7 @@ func (c *PlanConfig) getArgs() ([]string, error) {
 		args = append(args, "-target="+t)
 	}
 
-	args = append(args, "-input=false", "-json", "-out="+planOutputPath)
+	args = append(args, "-input=false", "-no-color", "-out="+planOutputPath)
 	return args, nil
 }
 
@@ -95,17 +100,40 @@ func (c *PlanConfig) Plan() (*PlanResult, error) {
 	return &result, nil
 }
 
-func createVarFile(vars map[string]string, dir string) error {
-	f, err := os.Create(dir + "/vars.tfvar")
+func createVarFile(vars map[string]any, dir string) error {
+	f, err := os.Create(dir + "/vars.tfvars")
 	if err != nil {
 		return err
 	}
 	defer f.Close()
-	for k, v := range vars {
-		_, err := f.WriteString(k + "=" + v + "\n")
-		if err != nil {
-			return err
-		}
+	bytes, err := toHCL(vars)
+	if err != nil {
+		return err
 	}
-	return nil
+	_, err = f.Write(bytes)
+	return err
+}
+
+func toHCL(in any) ([]byte, error) {
+	json, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	f, err := hcl.ParseBytes(json)
+	if err != nil {
+		return nil, err
+	}
+	buf := &bytes.Buffer{}
+	err = printer.DefaultConfig.Fprint(buf, f.Node)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintln(buf)
+	return stripeKeyQuotes(buf.Bytes()), nil
+}
+
+func stripeKeyQuotes(content []byte) []byte {
+	regex := regexp.MustCompile(`(?m)^"(.*)" = (.*)$`)
+	result := regex.ReplaceAll(content, []byte("$1 = $2\n"))
+	return result
 }

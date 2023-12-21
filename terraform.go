@@ -157,9 +157,13 @@ func runTFWithEnv(args []string) (string, error) {
 	logrus.Debugf("Calling %s %v", execPath, args)
 	if err := cmd.Run(); err != nil {
 		logrus.Errorf("Error running terraform: %v", err)
+		switch err.(type) {
+		case *exec.ExitError:
+			logrus.Debug(cmd.ProcessState.String())
+			logrus.Debug(errBuffer.String())
+			logrus.Debug(outBuffer.String())
+		}
 		return "", err
 	}
-	logrus.Debug(errBuffer.String())
-	logrus.Debug(cmd.ProcessState.String())
 	return outBuffer.String(), nil
 }

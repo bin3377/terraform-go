@@ -40,19 +40,17 @@ func init() {
 }
 
 func Test_Plan(t *testing.T) {
+	testPath := "./testData/vpcs"
 	t.Cleanup(func() {
-		os.RemoveAll("./testData/.terraform")
-		os.RemoveAll("./testData/.terraform.lock.hcl")
-		os.RemoveAll("./testData/terraform.tfstate")
-		os.RemoveAll("./testData/tfplan")
+		cleanup(testPath)
 	})
 	err := (&InitConfig{
-		ChDir: "./testData",
+		ChDir: testPath,
 	}).Init()
 	ok(t, err)
 
 	r, err := (&PlanConfig{
-		ChDir: "./testData",
+		ChDir: testPath,
 	}).Plan()
 
 	ok(t, err)
@@ -61,4 +59,57 @@ func Test_Plan(t *testing.T) {
 		assert(t, strings.HasPrefix(v.(string), "vpc"), "Expected value to start with vpc")
 	}
 	logrus.Debugf("%v", r.Plan.PlannedValues.Outputs)
+}
+
+func Test_PlanWithVars(t *testing.T) {
+	testPath := "./testData/input"
+	t.Cleanup(func() {
+		cleanup(testPath)
+	})
+	err := (&InitConfig{
+		ChDir: testPath,
+	}).Init()
+	ok(t, err)
+
+	r, err := (&PlanConfig{
+		ChDir: testPath,
+		Vars: map[string]any{
+			"foo_in":      "bar",
+			"foo_in_list": []string{"test", "me"},
+			"foo_in_map": map[string]string{
+				"test": "me",
+			},
+		},
+	}).Plan()
+
+	ok(t, err)
+	equals(t, r.Plan.PlannedValues.Outputs["foo_out"].Type, "string")
+	equals(t, r.Plan.PlannedValues.Outputs["foo_out"].Value, "bar")
+	equals(t, r.Plan.PlannedValues.Outputs["foo_out_list"].Type, []any{"list", "string"})
+	equals(t, r.Plan.PlannedValues.Outputs["foo_out_list"].Value, []any{"test", "me"})
+	equals(t, r.Plan.PlannedValues.Outputs["foo_out_map"].Type, []any{"map", "string"})
+	equals(t, r.Plan.PlannedValues.Outputs["foo_out_map"].Value, map[string]any{"test": "me"})
+	logrus.Debugf("%v", r.Plan.PlannedValues.Outputs)
+}
+
+func cleanup(path string) {
+	patterns := []string{
+		"*.tfplan",
+		"*.tfstate",
+		"*.tfstate.backup",
+		"*.tfstate.migrate",
+		".terraform",
+		".terraform.lock.hcl",
+	}
+	for _, pattern := range patterns {
+		files, err := filepath.Glob(filepath.Join(path, pattern))
+		if err != nil {
+			logrus.Errorf("Error cleaning up %s: %s", pattern, err.Error())
+			continue
+		}
+		for _, file := range files {
+			logrus.Debugf("Removing %s", file)
+			os.RemoveAll(file)
+		}
+	}
 }
