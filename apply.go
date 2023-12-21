@@ -2,6 +2,8 @@ package terraform
 
 import (
 	"encoding/json"
+	"fmt"
+	"os"
 	"strings"
 )
 
@@ -16,16 +18,36 @@ type ApplyResult struct {
 	Logs  []string
 }
 
-func (c *ApplyConfig) getArgs() []string {
+func (c *ApplyConfig) getArgs() ([]string, error) {
+	if len(c.PlanBinary) == 0 && c.PlanPath == "" {
+		return nil, fmt.Errorf("plan binary or path must be provided")
+	}
+
+	if len(c.PlanBinary) > 0 && c.PlanPath != "" {
+		return nil, fmt.Errorf("plan binary and path cannot both be provided")
+	}
+
+	planPath := c.PlanPath
+	if len(c.PlanBinary) > 0 {
+		planPath = tempDir + "/plan.tfplan"
+		f, err := os.Create(planPath)
+		if err != nil {
+			return nil, err
+		}
+		if _, err := f.Write(c.PlanBinary); err != nil {
+			return nil, err
+		}
+	}
+
 	args := []string{"apply"}
 
 	if c.ChDir != "" {
 		args = append([]string{"-chdir=" + c.ChDir}, args...)
 	}
 
-	args = append(args, "-json", "-auto-approve", c.PlanPath)
+	args = append(args, "-no-color", "-auto-approve", planPath)
 
-	return args
+	return args, nil
 }
 
 func (c *ApplyConfig) getShowArgs() []string {
@@ -39,7 +61,10 @@ func (c *ApplyConfig) getShowArgs() []string {
 }
 
 func (c *ApplyConfig) Apply() (*ApplyResult, error) {
-	args := c.getArgs()
+	args, err := c.getArgs()
+	if err != nil {
+		return nil, err
+	}
 	out, err := runTFWithEnv(args)
 	if err != nil {
 		return nil, err

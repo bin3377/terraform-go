@@ -113,3 +113,31 @@ func cleanup(path string) {
 		}
 	}
 }
+
+func Test_Apply(t *testing.T) {
+	testPath := "./testData/vpcs"
+	t.Cleanup(func() {
+		cleanup(testPath)
+	})
+	err := (&InitConfig{
+		ChDir: testPath,
+	}).Init()
+	ok(t, err)
+
+	r, err := (&PlanConfig{
+		ChDir: testPath,
+	}).Plan()
+	ok(t, err)
+
+	rr, err := (&ApplyConfig{
+		ChDir:      testPath,
+		PlanBinary: r.PlanBinary,
+	}).Apply()
+
+	ok(t, err)
+	equals(t, rr.State.Values.Outputs["foo"].Type, []any{"list", "string"})
+	for _, v := range rr.State.Values.Outputs["foo"].Value.([]any) {
+		assert(t, strings.HasPrefix(v.(string), "vpc"), "Expected value to start with vpc")
+	}
+	logrus.Debugf("%+v", rr.State.Values.Outputs)
+}
